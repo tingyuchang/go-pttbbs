@@ -2,8 +2,6 @@ package ptt
 
 import (
 	"bufio"
-	"errors"
-	"math"
 	"os"
 	"time"
 
@@ -95,7 +93,7 @@ func userLogin(uid ptttype.UID, user *ptttype.UserecRaw, ip *ptttype.IPv4_t) (er
 	cache.Shm.CheckMaxUser()
 
 	// update
-	_, _ = pwcuLoginSave(uid, user, ip)
+	_, _ = pwcuLoginSave(uid, user, uinfo, ip)
 	if err != nil {
 		log.Errorf("SetupNewUser: unable to passwdSyncUpdate: uid: %v userID: %v e: %v", uid, user.UserID, err)
 		return err
@@ -234,40 +232,48 @@ func mkUserDir(userID *ptttype.UserID_t) (err error) {
 
 // pwcuLoginSave update user numLoginDays, LastLogin and LastSeen
 // But the num increases 1 for every single day from 00:00
-func pwcuLoginSave(uid ptttype.UID, user *ptttype.UserecRaw, ip *ptttype.IPv4_t) (isFirstLoginOfDay bool, err error) {
-	// get user 1st login (or register?)
+// XXX TODO: move to passwd.go
+func pwcuLoginSave(uid ptttype.UID, user *ptttype.UserecRaw, uinfo *ptttype.UserInfoRaw, ip *ptttype.IPv4_t) (isFirstLoginOfDay bool, err error) {
+	// https://github.com/ptt/pttbbs/blob/master/mbbsd/passwd.c#L525
+	// get baseRefTS
 	firstLoginDay := user.FirstLogin.ToLocal()
-	// get 1st day at 00:00
 	firstLoginDay = time.Date(firstLoginDay.Year(), firstLoginDay.Month(), firstLoginDay.Day(), 0, 0, 0, 0, firstLoginDay.Location())
-	// calculate max num of login days
-	maxNumLoginDaysFromRegister := math.Ceil(time.Since(firstLoginDay).Hours() / 24)
 
-	lastLoginDay := user.LastLogin.ToLocal()
-	// set to 00:00
-	lastLoginDay = time.Date(lastLoginDay.Year(), lastLoginDay.Month(), lastLoginDay.Day(), 0, 0, 0, 0, lastLoginDay.Location())
-	// set to 00:00
-	today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Now().Location())
-	newNumLoginDays := user.NumLoginDays
-	// if lastLoginDay < today
-	if lastLoginDay.Sub(today) < 0 {
-		isFirstLoginOfDay = true
-		newNumLoginDays++
-	} else {
-		isFirstLoginOfDay = false
+	baseRefTS := types.TimeToTime4(firstLoginDay)
+
+	// https://github.com/ptt/pttbbs/blob/master/mbbsd/passwd.c#L536
+	// regDays and prevRegDays
+	nowTS := types.NowTS()
+	if nowTS < user.LastLogin {
+		nowTS = user.LastLogin
 	}
-	now := types.NowTS()
-	user.NumLoginDays = newNumLoginDays
-	user.LastLogin = now
-	user.LastSeen = now
+
+	regDays := int32((nowTS - baseRefTS) / ptttype.DAY_SECONDS)
+	prevRegDays := int32((user.LastLogin - baseRefTS) / ptttype.DAY_SECONDS)
+
+	// https://github.com/ptt/pttbbs/blob/master/mbbsd/passwd.c#L540
+	// plus one for initial day
+	if int32(user.NumLoginDays) > prevRegDays+1 {
+		user.NumLoginDays = uint32(prevRegDays) + 1
+	}
+
+	// https://github.com/ptt/pttbbs/blob/master/mbbsd/passwd.c#L545
+	if regDays > prevRegDays {
+		user.NumLoginDays++
+		isFirstLoginOfDay = true
+	}
+
+	user.LastLogin = nowTS
+
+	if !uinfo.UserLevel.Hide() {
+		user.LastSeen = nowTS
+	}
+
+	// https://github.com/ptt/pttbbs/blob/master/mbbsd/passwd.c#L558
+	// PWCU_END
 	err = passwdSyncUpdate(uid, user)
 	if err != nil {
-		return isFirstLoginOfDay, err
-	}
-
-	// check overflow
-	if float64(newNumLoginDays) > maxNumLoginDaysFromRegister {
-		// need to move error to ptttype
-		return isFirstLoginOfDay, errors.New("number of days login over maximum")
+		return false, err
 	}
 
 	return isFirstLoginOfDay, nil
