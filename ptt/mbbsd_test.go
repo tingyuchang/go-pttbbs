@@ -163,7 +163,7 @@ func TestLogin(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			args:         args{userID: &userid1, passwd: []byte("123123"), ip: ip1},
-			expectedUser: testSetupNewUser1,
+			expectedUser: testLoginUser1,
 			expectedUid:  41,
 		},
 		{
@@ -186,9 +186,12 @@ func TestLogin(t *testing.T) {
 			if !reflect.DeepEqual(gotUid, tt.expectedUid) {
 				t.Errorf("Login() gotUid = %v, want %v", gotUid, tt.expectedUid)
 			}
-			if !reflect.DeepEqual(gotUser, tt.expectedUser) {
-				t.Errorf("Login() gotUser = %v, want %v", gotUser, tt.expectedUser)
+			if gotUser != nil {
+				gotUser.NumLoginDays = 0
+				gotUser.LastLogin = 0
+				gotUser.LastSeen = 0
 			}
+			testutil.TDeepEqual(t, "user", gotUser, tt.expectedUser)
 		})
 		wg.Wait()
 	}
