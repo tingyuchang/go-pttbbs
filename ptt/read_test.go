@@ -3,6 +3,7 @@ package ptt
 import (
 	"encoding/binary"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/Ptt-official-app/go-pttbbs/ptttype"
@@ -50,11 +51,15 @@ func TestDeleteArticles(t *testing.T) {
 			wantErr: false,
 		},
 	}
+	var wg sync.WaitGroup
 	for _, tt := range tests {
+		wg.Add(1)
 		t.Run(tt.name, func(t *testing.T) {
+			wg.Done()
 			if err := DeleteArticles(tt.args.boardID, tt.args.filename, tt.args.index); (err != nil) != tt.wantErr {
 				t.Errorf("DeleteArticles() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+		wg.Wait()
 	}
 }
